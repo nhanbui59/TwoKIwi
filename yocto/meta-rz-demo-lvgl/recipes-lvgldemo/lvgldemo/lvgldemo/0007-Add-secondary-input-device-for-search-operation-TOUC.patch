@@ -1,0 +1,27 @@
+From c570c37a4fb7d5535ed8af759e53a02064a32f5f Mon Sep 17 00:00:00 2001
+From: Bernd Hollensteiner <Bernd.Hollensteiner@renesas.com>
+Date: Wed, 6 Dec 2023 10:59:25 +0100
+Subject: [PATCH] Add secondary input device for search operation (TOUCH is
+ primay)
+
+---
+ lv_drv_conf.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/lv_drv_conf.h b/lv_drv_conf.h
+index 929d031..e59e6f1 100644
+--- a/lv_drv_conf.h
++++ b/lv_drv_conf.h
+@@ -430,7 +430,8 @@
+ 
+ #if USE_LIBINPUT || USE_BSD_LIBINPUT
+ /*If only a single device of the same type is connected, you can also auto detect it, e.g.: */
+-#define LIBINPUT_NAME   libinput_find_dev(LIBINPUT_CAPABILITY_TOUCH, false)
++#define LIBINPUT_NAME            libinput_find_dev(LIBINPUT_CAPABILITY_TOUCH, false)
++#define LIBINPUT_NAME_SECONDARY  libinput_find_dev(LIBINPUT_CAPABILITY_POINTER, false)
+ /*  define LIBINPUT_NAME   "/dev/input/event0"   You can use the "evtest" Linux tool to get the list of devices and test them*/
+ 
+ #endif  /*USE_LIBINPUT || USE_BSD_LIBINPUT*/
+-- 
+2.25.1
+

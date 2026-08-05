@@ -1,0 +1,25 @@
+# Build artifacts
+yocto/build/
+yocto/downloads/
+yocto/sstate-cache/
+yocto/bsp_files/
+yocto/tmp/
+
+# Images
+backup/
+bsp_full_OneKiWi/
+
+# OS junk
+*.pyc
+__pycache__/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.~lock*
+*.lock
+
+# IDE
+.vscode/
+.idea/

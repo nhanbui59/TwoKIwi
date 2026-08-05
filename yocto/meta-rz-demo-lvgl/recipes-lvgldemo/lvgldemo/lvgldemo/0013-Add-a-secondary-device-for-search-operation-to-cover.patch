@@ -1,0 +1,32 @@
+From 3e66309a770c41cf956b857fc66f6126594e5f70 Mon Sep 17 00:00:00 2001
+From: Bernd Hollensteiner <Bernd.Hollensteiner@renesas.com>
+Date: Wed, 6 Dec 2023 10:49:19 +0100
+Subject: [PATCH] Add a secondary device for search operation to cover TOUCH
+ and MOUSE
+
+---
+ indev/libinput.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/lv_drivers/indev/libinput.c b/lv_drivers/indev/libinput.c
+index 29d1ca7..72486d8 100644
+--- a/lv_drivers/indev/libinput.c
++++ b/lv_drivers/indev/libinput.c
+@@ -165,7 +165,14 @@ bool libinput_set_file_state(libinput_drv_state_t *state, char* dev_name)
+  */
+ void libinput_init(void)
+ {
++#ifdef LIBINPUT_NAME_SECONDARY
++  char * device_name = LIBINPUT_NAME ;
++  if (device_name == NULL )
++    device_name = LIBINPUT_NAME_SECONDARY ;
++  libinput_init_state(&default_state, device_name);
++#else
+   libinput_init_state(&default_state, LIBINPUT_NAME);
++#endif
+ }
+ 
+ /**
+-- 
+2.25.1
+

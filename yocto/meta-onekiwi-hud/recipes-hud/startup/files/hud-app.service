@@ -1,0 +1,16 @@
+[Unit]
+Description=OneKiWi HUD App (LVGL + Mali-G31 Panfrost)
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hud-app
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

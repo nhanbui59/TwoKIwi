@@ -1,0 +1,5 @@
+# OneKiWi RZ/V2L - match working image layout
+# P1: FAT16 500M label=RZ_FAT (kernel+dtb) type=0x06
+# P2: ext4 rootfs label=root, no 64bit
+part --source bootimg-partition --fstype=vfat --label RZ_FAT --align 1024 --fixed-size 500M
+part / --source rootfs --fstype=ext4 --label root --align 1024 --mkfs-extraopts="-F -i 8192 -O ^64bit,^metadata_csum,^flex_bg"

@@ -1,0 +1,18 @@
+[Unit]
+Description=OneKiWi HUD LVGL Demo
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lvgldemo_32FS
+Restart=no
+StandardOutput=journal
+StandardError=journal
+WorkingDirectory=/usr/bin
+Environment=HOME=/root
+User=root
+
+[Install]
+WantedBy=multi-user.target
