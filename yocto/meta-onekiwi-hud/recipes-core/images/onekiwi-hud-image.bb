@@ -14,6 +14,9 @@ IMAGE_INSTALL += " \
     python3 python3-pip python3-pillow \
     kernel-modules \
     weston weston-init \
+    lvgldemo \
+    lvgldemo-service \
+    usbutils \
 "
 
 PACKAGE_EXCLUDE += " xserver-xorg \
