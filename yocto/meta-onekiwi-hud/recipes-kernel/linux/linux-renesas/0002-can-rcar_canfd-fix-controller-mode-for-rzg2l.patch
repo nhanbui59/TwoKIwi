@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Software Architect <arch@onekiwi.local>
+Date: Thu, 7 Aug 2025 00:00:00 +0000
+Subject: [PATCH] can: rcar_canfd: enable CAN-FD mixed mode for RZ/G2L family
+
+The RZ/G2L / RZ/V2L CANFD controller supports three per-channel modes
+via the FDOE bit in the CFDCFG register:
+
+  FDOE = 0  ->  CAN-FD mixed mode  (classical CAN + CAN-FD simultaneously)
+  FDOE = 1  ->  FD-Only mode       (classical CAN frames are disabled)
+
+The CIP 5.10 kernel driver only set the global GRMCFG.RCMC bit and never
+touched the per-channel CFDCFG.FDOE bit.  On some silicon revisions
+(including RZ/V2L) FDOE may not default to 0 after reset, which causes
+classical CAN frames to be silently rejected even though the driver
+software (xmit/rx paths) is fully capable of handling them.
+
+This patch mirrors the mainline solution (torvalds/linux):
+
+1. Add RCANFD_GEN4_FDCFG_FDOE / RCANFD_GEN4_FDCFG_CLOE bit definitions.
+2. Add an fd_only_mode field to struct rcar_canfd_global (defaults to
+   false = mixed mode).
+3. In rcar_canfd_reset_controller(), for every enabled channel on
+   non-RZ/G3S controllers, explicitly clear FDOE when fd_only_mode is
+   false (guaranteeing mixed mode) or set FDOE when fd_only_mode is true.
+4. Add the optional DT property "renesas,fd-only" that selects FD-Only
+   mode for applications that need to disable classical CAN.
+
+With this patch the default behaviour for RZ/G2L / RZ/V2L is CAN-FD
+mixed mode: both classical CAN 2.0 and CAN-FD frames can be transmitted
+and received on the same interface without any DT changes.
+
+Signed-off-by: Software Architect <arch@onekiwi.local>
+---
+ drivers/net/can/rcar/rcar_canfd.c | 33 +++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/drivers/net/can/rcar/rcar_canfd.c b/drivers/net/can/rcar/rcar_canfd.c
+--- a/drivers/net/can/rcar/rcar_canfd.c
++++ b/drivers/net/can/rcar/rcar_canfd.c
+@@ -199,6 +199,10 @@
+ #define RCANFD_FDCFG_TDCOC		BIT(8)
+ #define RCANFD_FDCFG_TDCO(x)		(((x) & 0x7f) >> 16)
+ 
++/* GEN4 per-channel CAN mode selection (CFDCFG register) */
++#define RCANFD_GEN4_FDCFG_CLOE		BIT(30)	/* Classical Only Enable */
++#define RCANFD_GEN4_FDCFG_FDOE		BIT(28)	/* FD Only Enable */
++
+ /* RSCFDnCFDRFCCx */
+ #define RCANFD_RFCC_RFIM		BIT(12)
+ #define RCANFD_RFCC_RFDC(x)		(((x) & 0x7) << 8)
+@@ -539,6 +543,7 @@
+ 	enum rcar_canfd_fcanclk fcan;	/* CANFD or Ext clock */
+ 	unsigned long channels_mask;	/* Enabled channels mask */
+ 	bool fdmode;			/* CAN FD or Classical CAN only mode */
++	bool fd_only_mode;		/* FD-Only mode (disables classical CAN) */
+ 	struct reset_control *rstc1;
+ 	struct reset_control *rstc2;
+ 	const struct rcar_canfd_hw_info *info;
+@@ -763,6 +768,26 @@
+ 				"channel %u reset failed\n", ch);
+ 			return err;
+ 		}
++
++		/* Set per-channel CAN-FD mode for RZ/G2L family and R-Car
++		 * Gen3. The FDOE bit in the per-channel CFDCFG register
++		 * controls whether classical CAN frames are accepted:
++		 *   FDOE = 0  ->  CAN-FD mixed mode (classic + FD)  [default]
++		 *   FDOE = 1  ->  FD-Only mode (classic disabled)
++		 * Explicitly clear FDOE so that mixed mode is guaranteed
++		 * regardless of the hardware reset default. The optional
++		 * "renesas,fd-only" DT property selects FD-Only mode.
++		 */
++		if (!is_rzg3s(gpriv)) {
++			if (gpriv->fd_only_mode)
++				rcar_canfd_set_bit(gpriv->base,
++						   RCANFD_F_CFDCFG(gpriv, ch),
++						   RCANFD_GEN4_FDCFG_FDOE);
++			else
++				rcar_canfd_clear_bit(gpriv->base,
++						     RCANFD_F_CFDCFG(gpriv, ch),
++						     RCANFD_GEN4_FDCFG_FDOE);
++		}
+ 	}
+ 	return 0;
+ }
+@@ -1933,6 +1958,9 @@
+ 	gpriv->fdmode = fdmode;
+ 	gpriv->info = info;
+ 
++	if (of_property_read_bool(pdev->dev.of_node, "renesas,fd-only"))
++		gpriv->fd_only_mode = true;
++
+ 	if (is_rzg3s(gpriv) && !(gpriv->fdmode)) {
+ 		gpriv->fdmode = true;
+ 		dev_warn(&pdev->dev,
+@@ -2087,8 +2115,8 @@
+ 	}
+ 
+ 	platform_set_drvdata(pdev, gpriv);
+-	dev_info(&pdev->dev, "global operational state (clk %d, fdmode %d)\n",
+-		 gpriv->fcan, gpriv->fdmode);
++	dev_info(&pdev->dev, "global operational state (clk %d, fdmode %d, fd_only_mode %d)\n",
++		 gpriv->fcan, gpriv->fdmode, gpriv->fd_only_mode);
+ 	return 0;
+ 
+ fail_channel:
+-- 
+2.43.0

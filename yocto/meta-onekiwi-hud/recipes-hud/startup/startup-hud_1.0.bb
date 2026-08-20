@@ -5,11 +5,12 @@ SRC_URI = "file://hud-app.service"
 
 inherit systemd
 
-SYSTEMD_SERVICE:${PN} = "hud-app.service"
+# NOTE: Dunfell uses the '_' override separator, NOT ':' (that is Honister+).
+SYSTEMD_SERVICE_${PN} = "hud-app.service"
 
 do_install() {
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/hud-app.service ${D}${systemd_system_unitdir}/
 }
 
-FILES:${PN} = "${systemd_system_unitdir}/hud-app.service"
+FILES_${PN} = "${systemd_system_unitdir}/hud-app.service"

@@ -4,6 +4,11 @@ yocto/downloads/
 yocto/sstate-cache/
 yocto/bsp_files/
 yocto/tmp/
+downloads/
+sstate-cache/
+
+# Binary backups
+*.dtb.bak
 
 # Images
 backup/

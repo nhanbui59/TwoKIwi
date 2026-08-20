@@ -13,9 +13,9 @@ IMAGE_INSTALL += " \
     can-utils iproute2 \
     python3 python3-pip python3-pillow \
     kernel-modules \
-    weston weston-init \
+    splash-logo \
+    lvgl-v9 \
     lvgldemo \
-    lvgldemo-service \
     usbutils \
 "
 
@@ -56,6 +56,13 @@ print('fix_wic_boot: done', file=sys.stderr)
 "
 }
 IMAGE_POSTPROCESS_COMMAND += "fix_wic_boot;"
+
+# Remove the tty1 getty: it prints "login:" on the framebuffer (HUD screen
+# must stay clean). Serial getty (ttySC0) + SSH remain available for login.
+remove_tty1_getty() {
+    sed -i '/getty.*tty1/d' ${IMAGE_ROOTFS}/etc/inittab
+}
+ROOTFS_POSTPROCESS_COMMAND += "remove_tty1_getty;"
 
 # Copy kernel + prebuilt DTB vào /boot/ rootfs (ext4)
 install_boot_files() {

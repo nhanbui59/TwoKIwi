@@ -1,0 +1,23 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          splash
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     S
+# Default-Stop:
+### END INIT INFO
+
+case "$1" in
+    start)
+        # Unblank framebuffer
+        echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
+        sleep 1
+        /usr/bin/splash-logo
+        ;;
+    stop)
+        ;;
+    *)
+        echo "Usage: $0 {start}"
+        exit 1
+esac
+exit 0

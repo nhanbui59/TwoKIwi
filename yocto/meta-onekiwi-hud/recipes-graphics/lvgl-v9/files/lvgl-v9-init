@@ -1,0 +1,38 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          lvgl-v9
+# Required-Start:    $remote_fs $syslog splash
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+### END INIT INFO
+
+DAEMON=/usr/bin/lvgl-v9-demo
+NAME=lvgl-v9
+
+case "$1" in
+    start)
+        echo "Starting $NAME"
+        export HOME=/root
+        # Splash logo already shown by splash init script.
+        # If lvgl-v9-demo crashes, logo stays as idle screen.
+        start-stop-daemon -S -b -m -p /var/run/$NAME.pid -x $DAEMON
+        ;;
+    stop)
+        echo "Stopping $NAME"
+        start-stop-daemon -K -p /var/run/$NAME.pid || true
+        rm -f /var/run/$NAME.pid
+        # Redraw splash logo when LVGL stops (idle screen)
+        /usr/bin/splash-logo 2>/dev/null
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit 0

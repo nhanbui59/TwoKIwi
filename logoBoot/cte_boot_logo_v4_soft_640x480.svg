@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="640"
+     height="480"
+     viewBox="0 0 640 480"
+     fill="none"
+     role="img"
+     aria-labelledby="title desc">
+  <title id="title">CTE electronics soft boot logo</title>
+  <desc id="desc">A soft modern CTE identity with a rounded circuit loop, integrated chip and compact wordmark.</desc>
+
+  <!-- Transparent 640 x 480 canvas. The target display supplies black. -->
+  <g id="soft-circuit-mark">
+    <!-- The open loop suggests both a C and a continuous electronic signal. -->
+    <path d="M399 112
+             C367 82 318 73 275 89
+             C224 108 196 155 204 204
+             C212 254 255 290 306 291
+             C344 292 377 277 400 253"
+          stroke="#18C8D4"
+          stroke-width="22"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Compact IC with gently rounded corners. -->
+    <rect x="275" y="157" width="82" height="82" rx="16"
+          stroke="#F4FAFF"
+          stroke-width="12"/>
+    <path d="M294 157V143M316 157V143M338 157V143
+             M294 253V239M316 253V239M338 253V239
+             M275 177H261M275 198H261M275 219H261"
+          stroke="#F4FAFF"
+          stroke-width="8"
+          stroke-linecap="round"/>
+
+    <!-- Three smooth PCB routes form a subtle E rhythm. -->
+    <path d="M357 177H376C386 177 392 171 392 161V151H414
+             M357 198H425
+             M357 219H376C386 219 392 225 392 235V245H414"
+          stroke="#18C8D4"
+          stroke-width="10"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+    <circle cx="422" cy="151" r="8" fill="#F4FAFF"/>
+    <circle cx="433" cy="198" r="8" fill="#F4FAFF"/>
+    <circle cx="422" cy="245" r="8" fill="#F4FAFF"/>
+  </g>
+
+  <!-- Soft monoline wordmark, built entirely from vector paths. -->
+  <g id="cte-wordmark"
+     stroke="#F4FAFF"
+     stroke-width="22"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <path d="M259 337H226C192 337 174 354 174 382S192 427 226 427H259"/>
+    <path d="M286 337H374M330 337V427"/>
+    <path d="M405 337H474M405 382H464M405 427H474M405 337V427"/>
+  </g>
+</svg>
