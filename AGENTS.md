@@ -2,6 +2,26 @@
 
 Mọi thay đổi build MUST follow config này. Đọc kỹ trước khi sửa bất cứ gì.
 
+## Nghiệm thu image — những phép kiểm ĐÚNG vs VÔ DỤNG (bài học 22/08/2026)
+
+**VÔ DỤNG (đừng dùng lại):**
+- Ngày build trong `/proc/version` (`#1 SMP PREEMPT ... Feb 27 2021`) — Yocto reproducible-builds ghim SOURCE_DATE_EPOCH/KERNEL_BUILD_TIMESTAMP, kernel cũ và mới ghi GIỐNG HỆT nhau
+- Timestamp file trong rootfs — cũng bị ghim (thấy `Mar 9 2018` là bình thường)
+
+**ĐÚNG (dùng các phép này):**
+1. `md5sum /boot/Image` trên bo == md5 của `tmp/deploy/images/onekiwi-rzv2l/Image` trên máy build
+2. `strings Image | grep "Tx request in listen-only"` — string chỉ tồn tại ở kernel có patch 0003
+3. `cat /proc/cmdline` — kernel của repo này có `CONFIG_CMDLINE_FORCE=y` nên cmdline **bắt buộc** chứa `fbcon=disable vt.global_cursor_default=0`. Thiếu 2 chuỗi đó = board đang chạy KERNEL KHÁC (vendor, eMMC/SPI) dù rootfs là của mình (dấu hiệu: timeout có mà listen-only vẫn `Operation not supported` = driver trong kernel đang chạy không có `BERR_REPORTING` — mọi bản driver từ repo này kể cả không patch đều có nó)
+4. Mổ WIC khi nghi flash: tách partition (`fdisk -l`, P1 FAT @sector 2048, P2 ext4 @sector 1026048), rút kernel từ P1 (FAT16 parse / pyfatfs) và P2 (`debugfs -R "cat /boot/Image" p2.img`), so md5 với deploy
+
+## HUD App (onekiwi-hud-svc — commit d1931857)
+
+- Binary prebuilt aarch64 `/home/root/hud_app` (md5 `a5057d8d`), `/etc/default/hud` (HUD_ARGS + CAN_LISTEN_ONLY=yes + HUD_FLIP="--flip v"), init `S99hud`
+- Init script tự: đợi `/dev/fb0` (10s), đưa can0 lên **listen-only** nếu đang down, **unbind vtcon** khỏi fb0 (tách console khỏi màn), tắt cursor blink
+- `pkg_postinst_ontarget` hạ lvgl-v9 S98→K98 ở first boot (chống giành fb0)
+- HUD_FLIP v = ảnh lat sẵn cho kính; hud_app tự dò tốc độ (--probe on) rồi tự rời listen-only
+- Sửa config trên bo: `/etc/default/hud` rồi `/etc/init.d/hud restart` — KHÔNG sửa init script
+
 ## Build Environment
 
 ```bash
@@ -27,19 +47,24 @@ Flash:  sudo dd if=<image>.wic of=/dev/sdX bs=4M status=progress conv=fsync
 
 | Feature | Trạng thái | Config |
 |---|---|---|
-| **CAN Classic + FD mixed** | OK | Patch `0002-can-rcar_canfd-fix-controller-mode-for-rzg2l.patch` — clear FDOE bit → mixed mode (cả 2 chạy song song, không cần chuyển đổi) |
+| **CAN listen-only + berr-reporting** | OK (patch 0003) | `CCTR.CTME` bit 24 test-mode = listen-only (không ACK, không error flag, không thể bus-off — cơ chế Renesas FSP); BEIE gate theo cờ; TX guard drop |
+| **CAN Classic + FD mixed** | OK | Patch `0002` — clear FDOE → mixed mode (cả 2 chạy song song). FD tĩnh trong DT (KHÔNG dùng `renesas,no-can-fd` — software tự điều khiển classic/FD theo lần cấu hình) |
 | **USB host/gadget** | OK | `onekiwi-gpu-dsi.cfg` + DTS sẵn |
 | **GPU Mali-G31 (Panfrost)** | OK | `CONFIG_DRM_PANFROST=y` + mesa bbappend `panfrost kmsro` |
-| **LVGL v9.2.2 + ThorVG** | OK | `recipes-graphics/lvgl-v9/`, render trực tiếp fbdev `/dev/fb0` |
+| **LVGL v9.2.2 + ThorVG** | OK | `recipes-graphics/lvgl-v9/`, fbdev `/dev/fb0` (đã bị hạ K98 nhường fb0 cho hud_app) |
+| **eth0 IP tĩnh** | OK | `onekiwi-net` init: `169.254.10.2/16`, host PC để `169.254.10.1/16` |
+| **coreutils (timeout)** | OK | Trong IMAGE_INSTALL |
 | **CAN clock** | 50 MHz | DTS: Classic 500kbps + FD data 2Mbps OK |
 
 ### CAN test sau boot
 ```bash
-dmesg | grep fd_only_mode        # → fdmode 1, fd_only_mode 0 (mixed)
-ip link set can0 type can bitrate 500000 dbitrate 2000000 fd on
+#listen-only (không cần cắm CAN cũng phải THÀNH CÔNG — chỉ cấu hình kernel)
+ip link set can0 down
+ip link set can0 type can bitrate 500000 dbitrate 2000000 fd on listen-only on berr-reporting on
 ip link set can0 up
-cansend can0 123#DEADBEEF        # classic frame
-cansend can0 456##1.111213...    # FD frame (BRS)
+ip -d link show can0     # phải hiện listen-only berr-reporting
+# Nếu "Operation not supported" → kernel đang chạy KHÔNG phải kernel từ image (xem phần nghiệm thu)
+cansend can0 123#DEADBEEF        # bị chặn: dmesg "Tx request in listen-only mode"
 ```
 
 ## HUD Windshield Projection (V-Flip)
