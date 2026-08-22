@@ -1,0 +1,259 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          hud
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: HUD 640x480 tren /dev/fb0
+### END INIT INFO
+#
+# Khoi dong HUD cung voi bo. Dat theo dung khuon cua /etc/init.d/lvgl-v9 tren
+# chinh image nay (sysvinit + start-stop-daemon), khong phai systemd.
+#
+# CAI DAT:  hud/tools/install_board_service.sh   (chay tu may dev)
+# CHINH:    sua /etc/default/hud tren bo, KHONG sua tep nay.
+#
+# ==========================================================================
+# BA DIEU TE NHI, deu la ly do tep nay dai hon mot dong `exec`:
+#
+# 1. HUD KHONG SO HUU can0. Init script chi dua can0 len neu no dang xuong.
+#    Neu ai do da cau hinh can0 (toc do khac, che do khac) thi ta khong dap
+#    de len — dap de len se lam mot buoi do dac dang do hong ma khong ai hieu
+#    vi sao.
+#
+# 2. Doi /dev/fb0 XUAT HIEN roi moi chay. Driver panel nap qua DRM va co the
+#    cham hon init vai tram ms; chay som thi HUD thoat ngay voi "khong mo duoc
+#    /dev/fb0" va bo im lang cho toi lan reboot sau.
+#
+# 3. TAT con tro nhap nhay cua console tren fb0. Khong tat thi co mot o vuong
+#    trang nhap nhay de len giao dien, va tren kinh chan gio no rat noi.
+# ==========================================================================
+
+NAME=hud
+DAEMON=/home/root/hud_app
+PIDFILE=/var/run/$NAME.pid
+LOGFILE=/var/log/hud.log
+
+# Cau hinh nguoi dung — dat o day de nang cap binary khong mat cau hinh.
+CAN_IF=can0
+CAN_BITRATE=500000
+# Toc do pha DU LIEU cua CAN FD.
+#
+# BIEN NAY TRUOC DAY DUOC DUNG MA CHUA BAO GIO DUOC DAT. Lenh `ip ... dbitrate
+# "$CAN_DBITRATE" fd on` no ra thanh `... dbitrate  fd on`, `ip` doc "fd" lam
+# gia tri cua dbitrate roi bao loi cu phap — nghia la NHANH FD KHONG BAO GIO
+# CHAY DUOC, va bo luon roi xuong nhanh classic, dung cai nhanh ma rcar_canfd
+# tu choi luc khoi dong sach. Mot lan boot sach can0 nam DOWN vi dung dieu do.
+CAN_DBITRATE=2000000
+
+# DUA can0 LEN O CHE DO CHI NGHE (listen-only) hay che do phat binh thuong?
+#
+# yes (mac dinh) = CHI NGHE. Luc script nay chay, CAN_BITRATE con la mot PHONG
+#   DOAN: khong ai biet chiec xe dang cam vao chay toc do nao. Mot controller
+#   o che do phat dat SAI toc do khong chi im lang — no thay moi khung cua
+#   nguoi khac deu hong va day error flag len bus that, tuc la pha nat luu
+#   luong cua chiec xe va co the day ECU that vao bus-off. Che do chi nghe thi
+#   sai toc do chi co nghia la ta khong nghe duoc gi.
+#   hud_app se tu do toc do that roi tu roi che do chi nghe (--probe auto).
+#
+# no = che do phat binh thuong (hanh vi cu). CHI dung khi ban BIET CHAC toc do
+#   bus — ban thu nghiem, hoac mot chiec xe da do roi.
+#
+#   CANH BAO: neu ban dat =no thi khong sao (hud_app thay can0 dang len se tu
+#   bo qua buoc do). Nhung neu ban dat =yes MA LAI tat viec do (--probe off
+#   trong HUD_ARGS) thi can0 nam CAM KHAU vinh vien: HUD van nhan duoc khung
+#   quang ba, nhung MOI cau hoi OBD-II bien mat khong mot dong loi nao. Nhanh
+#   `start` duoi day phat hien va noi thang ra tinh huong do.
+CAN_LISTEN_ONLY=yes
+HUD_ARGS="--can socketcan:can0 --input canctl:can0 --navlink udp:0.0.0.0:5077"
+# Bo mac dinh khong lat: gan combiner roi thi doi thanh --flip v trong
+# /etc/default/hud. De san --flip none cho lan dau cam man hinh tran con doc duoc.
+HUD_FLIP="--flip none"
+FB_WAIT_S=10
+
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+# Doi /dev/fb0 san sang. Tra 0 neu co, 1 neu het gio.
+wait_for_fb() {
+    i=0
+    while [ $i -lt "$FB_WAIT_S" ]; do
+        [ -e /dev/fb0 ] && return 0
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# CTRLMODE LA DINH: no nam lai trong controller qua ca lan xuong/len.
+#
+# hud_app bat listen-only trong luc do bus. Bi giet DUNG LUC DO (start-stop-
+# daemon -K, mat dien, hoac mot lenh `restart`) thi can0 nam lai o trang thai
+# VAN NHAN duoc khung nhung MOI khung gui di deu bien mat — khong loi, khong
+# dau vet. Do la kieu hong ton nhieu gio nhat de tim.
+#
+# Khong ai dat listen-only bang tay roi khoi dong HUD, nen thay no la biet
+# chac rac cua chinh ta. Chay o CA `start` LAN `stop`.
+can_is_listen_only() {
+    ip -details link show "$CAN_IF" 2>/dev/null | grep -q 'LISTEN-ONLY'
+}
+
+clear_listen_only() {
+    can_is_listen_only || return 0
+    echo "  $CAN_IF con ket o che do CHI NGHE tu lan chay truoc — go ra"
+    ip link set "$CAN_IF" down 2>/dev/null
+    ip link set "$CAN_IF" type can bitrate "$CAN_BITRATE" \
+        dbitrate "$CAN_DBITRATE" fd on listen-only off 2>/dev/null ||
+    ip link set "$CAN_IF" type can bitrate "$CAN_BITRATE" listen-only off \
+        2>/dev/null || true
+}
+
+# Dua can0 len NEU no dang xuong. Khong dung den neu no da chay.
+bring_up_can() {
+    [ -d "/sys/class/net/$CAN_IF" ] || {
+        echo "  $CAN_IF khong co — HUD van chay, du lieu xe se hien '--'"
+        return 0
+    }
+
+    # Don rac cua lan chay truoc TRUOC moi quyet dinh khac. Bo qua buoc nay
+    # thi doan duoi ket luan "da chay san, khong dung den" tren mot giao dien
+    # dang cam khau, va HUD cam suot ca chuyen di.
+    clear_listen_only
+
+    state=$(cat "/sys/class/net/$CAN_IF/operstate" 2>/dev/null)
+    if [ "$state" = "up" ]; then
+        echo "  $CAN_IF da chay san, khong dung den"
+        return 0
+    fi
+
+    if [ "$CAN_LISTEN_ONLY" = "yes" ]; then
+        lo=on
+    else
+        lo=off
+    fi
+    ip link set "$CAN_IF" down 2>/dev/null
+
+    # HAI KIEU BO DIEU KHIEN, va phai THU CHU KHONG DOAN.
+    #
+    # Bo RZ/V2L dung rcar_canfd. Luc KHOI DONG SACH no o che do CAN FD, va o
+    # che do do `bitrate` MOT MINH la KHONG DU — nhan tra ve:
+    #     rcar_canfd can0: incorrect/missing data bit-timing
+    #     open_candev() failed, error -22
+    # va can0 nam DOWN. Loi nay CHI lo khi khoi dong that: thu bang tay tren
+    # mot can0 da tung duoc cau hinh thi lenh chi co `bitrate` lai chay ngon.
+    #
+    # Nen: thu ban FD (co dbitrate) TRUOC vi day la trang thai luc boot; that
+    # bai thi lui ve classic cho nhung bo khong co FD.
+    #
+    # `listen-only $lo` NAM TRONG CA HAI NHANH, va khi lo=on thi KHONG co
+    # nhanh du phong nao bo no di. Neu driver khong nhan co nay thi ca hai
+    # lenh cung hong va can0 nam DOWN — do la ket qua DUNG, khong phai mot lo
+    # hong: tha khong len con hon len o che do phat voi mot toc do phong doan.
+    # (hud_app van chay binh thuong voi can0 DOWN: bind() vao mot giao dien
+    # dang xuong van thanh cong, va may do se tu dua no len.)
+    #
+    # BO 2>/dev/null: cau tra loi cua nhan ("RTNETLINK answers: Operation not
+    # supported") la thu DUY NHAT phan biet duoc "driver khong ho tro
+    # listen-only" voi "day chua cam vao chan 6/14". Nem no di la tu bit mat
+    # mot buoi go roi.
+    if ip link set "$CAN_IF" type can bitrate "$CAN_BITRATE" \
+           dbitrate "$CAN_DBITRATE" fd on listen-only "$lo"; then
+        mode="FD ($CAN_BITRATE/$CAN_DBITRATE), listen-only $lo"
+    elif ip link set "$CAN_IF" type can bitrate "$CAN_BITRATE" \
+             listen-only "$lo"; then
+        mode="classic ($CAN_BITRATE), listen-only $lo"
+    else
+        echo "  khong cau hinh duoc $CAN_IF (listen-only $lo) — de no nam DOWN."
+        echo "  HUD van chay; may do bus se tu thu dua $CAN_IF len."
+        return 0
+    fi
+
+    if ip link set "$CAN_IF" up; then
+        echo "  $CAN_IF len, che do $mode"
+    else
+        echo "  $CAN_IF cau hinh xong nhung khong len duoc — HUD van chay"
+    fi
+}
+
+# CANH BAO MOT TO HOP TU GIET: can0 cam khau + khong ai do de go ra.
+# Chu thich canh bien khong phai co che; day moi la co che.
+warn_muted_without_probe() {
+    [ "$CAN_LISTEN_ONLY" = "yes" ] || return 0
+    case "$HUD_ARGS" in
+        *"--probe off"*|*"--probe"[[:space:]]"off"*)
+            echo "  CANH BAO: CAN_LISTEN_ONLY=yes cong voi '--probe off' nghia la"
+            echo "  $CAN_IF nam CAM KHAU va khong ai go ra. HUD se nhan duoc khung"
+            echo "  quang ba nhung MOI cau hoi OBD-II se bien mat khong bao loi."
+            echo "  Sua: dat CAN_LISTEN_ONLY=no trong /etc/default/$NAME."
+            ;;
+    esac
+}
+
+case "$1" in
+    start)
+        echo "Starting $NAME"
+        [ -x "$DAEMON" ] || { echo "  khong thay $DAEMON"; exit 1; }
+
+        if ! wait_for_fb; then
+            echo "  het $FB_WAIT_S giay ma khong thay /dev/fb0 — bo qua"
+            exit 1
+        fi
+        bring_up_can
+        warn_muted_without_probe
+
+        # TACH CONSOLE KHOI FRAMEBUFFER — day la thu quyet dinh.
+        #
+        # Nhan Linux gan console van ban vao /dev/fb0 (vtcon co ten "frame
+        # buffer device"). Chung nao no con gan thi MOI dong kernel in ra deu
+        # VE DE len giao dien: luc khoi dong thi chu chay day man, va dang chay
+        # thi mot canh bao kernel bat ky cung dam ngang qua HUD. Tren kinh chan
+        # gio truoc mat nguoi lai thi do la thu khong chap nhan duoc.
+        #
+        # Go bind xong, nhan bao "Console: switching to colour dummy device" va
+        # tu do khong con gi ghi vao fb0 ngoai HUD.
+        #
+        # Console SERIAL khong he mat — van dang nhap va go lenh binh thuong
+        # qua ttySC0. Chi la khong con hien tren MAN HINH.
+        for v in /sys/class/vtconsole/vtcon*/; do
+            if grep -q "frame buffer device" "$v/name" 2>/dev/null; then
+                echo 0 > "$v/bind" 2>/dev/null || true
+            fi
+        done
+
+        # Con tro nhap nhay, phong khi image nao do van giu console tren fb.
+        echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
+
+        start-stop-daemon -S -b -m -p "$PIDFILE" -x /bin/sh -- -c \
+            "exec $DAEMON $HUD_ARGS $HUD_FLIP >> $LOGFILE 2>&1"
+        ;;
+
+    stop)
+        echo "Stopping $NAME"
+        start-stop-daemon -K -p "$PIDFILE" || true
+        # HUD co the vua bi giet GIUA LUC dang do bus, tuc la dang de can0 o
+        # che do chi nghe. Go ra ngay thay vi de lan `start` sau phai doan.
+        clear_listen_only
+        rm -f "$PIDFILE"
+        ;;
+
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "$NAME dang chay (pid $(cat "$PIDFILE"))"
+            exit 0
+        fi
+        echo "$NAME khong chay"
+        exit 1
+        ;;
+
+    *)
+        echo "Dung: $0 {start|stop|restart|status}"
+        exit 1
+esac
+
+exit 0

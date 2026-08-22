@@ -15,6 +15,7 @@ IMAGE_INSTALL += " \
     kernel-modules \
     coreutils \
     onekiwi-net \
+    onekiwi-hud-svc \
     splash-logo \
     lvgl-v9 \
     lvgldemo \

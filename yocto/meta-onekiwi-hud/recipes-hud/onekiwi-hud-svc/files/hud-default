@@ -1,0 +1,105 @@
+# /etc/default/hud — cau hinh cua dich vu HUD.
+#
+# SUA TEP NAY, dung sua /etc/init.d/hud. Nang cap dich vu se ghi de init
+# script nhung KHONG dung den tep nay.
+#
+# Sua xong thi:  /etc/init.d/hud restart
+
+# ---- Nguon du lieu xe ----------------------------------------------------
+# socketcan:can0     CAN that tren bo (mac dinh)
+# sim:               bo gia lap, dung khi chua cam day CAN
+# replay:drive.log   phat lai ban ghi candump
+#
+# ---- Kenh lenh -----------------------------------------------------------
+# canctl:can0        nhan lenh doi man / lat anh qua khung CAN 0x600
+# evdev:/dev/input/event0   nut vat ly
+# null:              khong nhan lenh
+#
+# ---- Kenh dan duong tu dien thoai ----------------------------------------
+# udp:0.0.0.0:5077   nghe tren mang (dung khi phat trien)
+# btspp:3            Bluetooth SPP — CAN BlueZ trong image, hien CHUA CO
+# null:              tat
+#
+# ---- Do bus (--probe) ----------------------------------------------------
+# auto (mac dinh, khong can go)  do khi --can la socketcan:
+#   Luc khoi dong, HUD quet cac toc do pho bien (500k, 250k, 125k, 1M) o CHE
+#   DO CHI NGHE — khong mot bit nao len bus, ke ca bit ACK — roi moi hoi
+#   OBD-II bang kieu dia chi do duoc (11-bit hay 29-bit).
+#   Ton toi da ~3 giay luc khoi dong; trong luc do man hinh hien "Dang nghe...".
+#   auto KHONG do khi can0 DANG LEN: ai da cau hinh tay thi khong dap de.
+# on    ep do ke ca khi can0 dang len.
+# off   khong do. Giu nguyen toc do init script da dat.
+#
+# DO XONG CO TU HOI OBD-II KHONG? KHONG, tru khi ban them --obd2.
+#   May do co the CAM (no khong bao gio tu cho minh quyen phat), nhung no
+#   KHONG duoc tu bat vong hoi. --obd2 la cho BAN noi "toi cho phep HUD mo
+#   mieng tren bus". Bo da xuat xuong khong co --obd2 se giu nguyen hanh vi
+#   CHI NGHE sau khi nang cap phan mem — them --obd2 vao dong duoi la mot
+#   quyet dinh co nguoi chiu trach nhiem, khong phai mot tac dung phu.
+# BON LUA CHON O DAY, moi cai deu do tren xe that 22/08/2026:
+#
+#   --probe on    TU DO toc do bus va kieu dia chi. Khong co no thi HUD dung
+#                 nguyen CAN_BITRATE doan san — dung voi chiec xe nay, sai voi
+#                 chiec tiep theo. San pham ban ra khong duoc doan.
+#   --obd2        BAT duong hoi-dap. Thieu no thi cam vao cong OBD ma khong hoi
+#                 mot cau nao, va nguon du lieu duy nhat con lai la khung quang
+#                 ba — ma bang tin hieu mac dinh khong khop xe nao ca.
+#   --input null: TAT kenh lenh CAN. Dai 0x600-0x7FF la dai chan doan rat dong
+#                 tren bus that; mot khung la co data[0]=0x7F tung TAT HAN HUD.
+#                 Tren xe khong ai bam nut doi man, nen khong co ly do de mo.
+#   --navlink null:  DONG cong UDP 5077. Mac dinh cu mo ra MOI giao dien mang,
+#                 khong phien, khong token: mot goi 30 byte tu bat cu ai cung
+#                 dua len kinh mot bien bao gioi han toc do SAI.
+HUD_ARGS="--can socketcan:can0 --probe on --obd2 --input null: --navlink null:"
+
+# ---- Chieu lat anh -------------------------------------------------------
+# MAC DINH LA `v` — anh LAT SAN de hat len kinh. Khoi dong bo la len hinh dung
+# chieu cho combiner ngay, khong phai chinh gi them.
+#
+# Nhin THANG vao panel tran luc do se thay NGUOC — dung nhu vay, khong phai
+# loi: combiner 45 do dao lai mot lan nua thanh dung chieu cho mat nguoi lai.
+#
+#   --flip v      panel huong kinh lai      <- MAC DINH, dung khi chay that
+#   --flip hv     panel huong nguoi lai     (kieu ga khac)
+#   --flip none   KHONG lat — chi de DEBUG, khi muon doc UI trec tiep tren
+#                 panel tran ma khong co combiner
+#   --flip h      guong theo truc doc       (hiem, chi de thu)
+#
+# Ba che do kia chi de xem UI luc go loi. Doi nhanh khong can sua tep nay:
+# bam nut Lat anh trong tool CAN (khung 0x600), hoac phim F neu co ban phim.
+HUD_FLIP="--flip v"
+
+# ---- CAN -----------------------------------------------------------------
+# Init script CHI dua can0 len neu no dang xuong. Da cau hinh tay roi thi no
+# khong dung den — de mot buoi do dac khong bi dap de.
+#
+# VA KHI DUA LEN THI DUA LEN O CHE DO CHI NGHE (listen-only). Toc do duoi day
+# chi la DIEM XUAT PHAT: hud_app se tu do lai va dat lai cho dung. Dua len o
+# che do phat voi mot toc do doan bua la cach chac chan nhat de lam hong luu
+# luong bus cua chiec xe dang cam vao.
+CAN_IF=can0
+CAN_BITRATE=500000
+# Toc do pha DU LIEU cua CAN FD. Bo RZ/V2L o che do FD luc khoi dong va doi
+# BAT BUOC phai co con so nay — thieu no thi can0 nam DOWN voi loi
+# "incorrect/missing data bit-timing". Khung classic van chay binh thuong tren
+# giao dien dat o che do FD (da do: RX nguyen ven).
+CAN_DBITRATE=2000000
+
+# Dua can0 len o CHE DO CHI NGHE (yes, mac dinh) hay che do phat (no)?
+#
+# yes: luc init script chay, CAN_BITRATE tren kia moi chi la mot PHONG DOAN.
+#      Dua giao dien len o che do phat voi mot toc do doan bua tren cong
+#      OBD-II cua mot chiec xe la la cach chac chan nhat de pha luu luong bus
+#      cua no. hud_app se tu do toc do that roi tu roi che do chi nghe.
+# no:  hanh vi cu. CHI dung khi ban BIET CHAC toc do bus.
+#
+# BAY: dat =yes MA LAI cho "--probe off" vao HUD_ARGS thi can0 nam cam khau
+# vinh vien va OBD-II chet lang le. Init script phat hien to hop nay va in
+# canh bao ra /var/log/hud.log — nhung dung de no phai lam vay.
+CAN_LISTEN_ONLY=yes
+
+# Doi /dev/fb0 xuat hien bao lau truoc khi bo cuoc. Driver panel nap qua DRM
+# va co the cham hon init vai tram ms.
+FB_WAIT_S=10
+
+LOGFILE=/var/log/hud.log
