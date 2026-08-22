@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
+From: Software Architect <arch@onekiwi.local>
+Date: Sat, 22 Aug 2026 00:00:00 +0000
+Subject: [PATCH] can: rcar_canfd: add listen-only mode and proper bus-error
+ reporting
+
+The RZ/G2L / RZ/V2L CANFD controller (RSCFD IP) is used in an
+automotive HUD that attaches to a real vehicle CAN bus.  Two
+control-mode features are required for safe bring-up on a live
+network and are currently missing or wrong in the CIP 5.10 driver:
+
+1. CAN_CTRLMODE_LISTENONLY (new):
+   The RSCFD has no dedicated LOM bit; listen-only is implemented
+   through CAN Test Mode, selected by the CTME bit (bit 24) in the
+   per-channel CFDCmCTR control register (RZ/G2L HW manual
+   R01UH0914EJ, "CAN Test Mode").  With CTME = 1 the channel keeps
+   receiving frames but never drives the bus: no data bits, no ACK
+   and no active error/overload flags are transmitted, so the node
+   cannot disturb the network and can never go bus-off (TEC stays
+   0).  This matches how the Renesas RA FSP driver implements
+   CAN_TEST_MODE_LISTEN_ONLY on the same IP.
+
+   CTME is writable only while the channel is in reset mode, so:
+   - rcar_canfd_start() sets/clears CTME according to
+     priv->can.ctrlmode right before transitioning the channel to
+     operational mode (the channel is guaranteed to be in reset
+     there; stop() leaves it in reset).
+   - rcar_canfd_stop() clears CTME after the channel reset
+     transition so every start begins from normal mode.
+   - rcar_canfd_start_xmit() drops Tx attempts in software when
+     listen-only is active (kfree + tx_dropped + warn once) so the
+     Common FIFO and echo skb bookkeeping stay consistent.
+
+2. CAN_CTRLMODE_BERR_REPORTING (fix):
+   The driver already advertised CAN_CTRLMODE_BERR_REPORTING in
+   ctrlmode_supported but rcar_canfd_enable_channel_interrupts()
+   unconditionally enabled the BEIE bus-error interrupt, i.e. bus
+   error IRQ storms on a noisy bus even with berr-reporting off.
+   Now BEIE is only set when ctrlmode requests it, and the BEF
+   handling in rcar_canfd_error() is gated on the same flag (BEF
+   can be latched in ERFL together with other, enabled error
+   flags).
+
+Note: the socket CAN core (can_changelink) rejects control-mode
+changes while the interface is UP (-EBUSY), so listen-only and
+berr-reporting are applied at ndo_open time; changing them requires
+the standard down/set/up cycle:
+
+  ip link set can0 down
+  ip link set can0 type can listen-only on berr-reporting on
+  ip link set can0 up
+
+The mixed classic/FD mode introduced by the previous patch
+(CFDCFG.FDOE clearing) is untouched.
+
+Signed-off-by: Software Architect <arch@onekiwi.local>
+---
+ drivers/net/can/rcar/rcar_canfd.c | 55 ++++++++++++++++++++++++++++++---
+ 1 file changed, 50 insertions(+), 5 deletions(-)
+
+--- a/drivers/net/can/rcar/rcar_canfd.c
++++ b/drivers/net/can/rcar/rcar_canfd.c
+@@ -953,7 +953,14 @@
+ 	       RCANFD_CCTR_ALIE | RCANFD_CCTR_BLIE |
+ 	       RCANFD_CCTR_OLIE | RCANFD_CCTR_BORIE |
+ 	       RCANFD_CCTR_BOEIE | RCANFD_CCTR_EPIE |
+-	       RCANFD_CCTR_EWIE | RCANFD_CCTR_BEIE);
++	       RCANFD_CCTR_EWIE);
++	/* Bus error interrupts are only enabled when requested by
++	 * userspace, matching Linux CAN_CTRLMODE_BERR_REPORTING
++	 * semantics (bus error IRQs at 500 kbit classic rate can
++	 * otherwise flood the CPU on a noisy bus).
++	 */
++	if (priv->can.ctrlmode & CAN_CTRLMODE_BERR_REPORTING)
++		ctr |= RCANFD_CCTR_BEIE;
+ 	rcar_canfd_set_bit(priv->base, RCANFD_CCTR(ch), ctr);
+ }
+ 
+@@ -1038,8 +1045,13 @@
+ 		return;
+ 	}
+ 
+-	/* Channel error interrupts */
+-	if (cerfl & RCANFD_CERFL_BEF) {
++	/* Channel error interrupts. The BEF (bus error frame) report is
++	 * gated on CAN_CTRLMODE_BERR_REPORTING: the BEIE hardware gate
++	 * prevents the interrupt, this guard also covers BEF latched
++	 * alongside other (enabled) error flags in a single ERFL read.
++	 */
++	if ((cerfl & RCANFD_CERFL_BEF) &&
++	    (priv->can.ctrlmode & CAN_CTRLMODE_BERR_REPORTING)) {
+ 		netdev_dbg(ndev, "Bus error\n");
+ 		cf->can_id |= CAN_ERR_BUSERROR | CAN_ERR_PROT;
+ 		cf->data[2] = CAN_ERR_PROT_UNSPEC;
+@@ -1408,6 +1420,22 @@
+ 
+ 	rcar_canfd_enable_channel_interrupts(priv);
+ 
++	/* Configure listen-only mode. The RSCFD implements listen-only
++	 * through CAN Test Mode: with CCTR.CTME set the channel receives
++	 * frames but never drives the bus (no data bits, no ACK, no
++	 * active error/overload flags), so it cannot disturb a live CAN
++	 * network and can never go bus-off (TEC stays 0). CTME is
++	 * writable only while the channel is in reset mode, i.e. before
++	 * the operational transition below (stop() leaves the channel in
++	 * reset and always clears CTME).
++	 */
++	if (priv->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)
++		rcar_canfd_set_bit(priv->base, RCANFD_CCTR(ch),
++				   RCANFD_CCTR_CTME);
++	else
++		rcar_canfd_clear_bit(priv->base, RCANFD_CCTR(ch),
++				     RCANFD_CCTR_CTME);
++
+ 	/* Set channel to Operational mode */
+ 	rcar_canfd_update_bit(priv->base, RCANFD_CCTR(ch),
+ 			      RCANFD_CCTR_CHMDC_MASK, RCANFD_CCTR_CHDMC_COPM);
+@@ -1486,6 +1514,12 @@
+ 	if (err)
+ 		netdev_err(ndev, "channel %u reset failed\n", ch);
+ 
++	/* Leave CAN test mode so the channel always restarts in normal
++	 * mode; start() re-enables CTME if listen-only is still
++	 * requested. CTME is writable while in channel reset mode.
++	 */
++	rcar_canfd_clear_bit(priv->base, RCANFD_CCTR(ch), RCANFD_CCTR_CTME);
++
+ 	rcar_canfd_disable_channel_interrupts(priv);
+ 
+ 	/* Disable Common & Rx FIFO */
+@@ -1524,6 +1558,18 @@
+ 	if (can_dropped_invalid_skb(ndev, skb))
+ 		return NETDEV_TX_OK;
+ 
++	/* Listen-only: drop Tx attempts in software. The channel in CAN
++	 * test mode would not transmit anyway (and could not even ACK);
++	 * dropping here keeps the Common FIFO and the echo skb bookkeeping
++	 * consistent. Counted as tx_dropped, warned once.
++	 */
++	if (priv->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
++		netdev_warn_once(ndev, "Tx request in listen-only mode, dropping skb\n");
++		kfree_skb(skb);
++		ndev->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++
+ 	if (cf->can_id & CAN_EFF_FLAG) {
+ 		id = cf->can_id & CAN_EFF_MASK;
+ 		id |= RCANFD_CFID_CFIDE;
+@@ -1817,11 +1863,13 @@
+ 
+ 		/* Controller starts in CAN FD only mode */
+ 		can_set_static_ctrlmode(ndev, CAN_CTRLMODE_FD);
+-		priv->can.ctrlmode_supported = CAN_CTRLMODE_BERR_REPORTING;
++		priv->can.ctrlmode_supported = CAN_CTRLMODE_BERR_REPORTING |
++			CAN_CTRLMODE_LISTENONLY;
+ 	} else {
+ 		/* Controller starts in Classical CAN only mode */
+ 		priv->can.bittiming_const = &rcar_canfd_bittiming_const;
+-		priv->can.ctrlmode_supported = CAN_CTRLMODE_BERR_REPORTING;
++		priv->can.ctrlmode_supported = CAN_CTRLMODE_BERR_REPORTING |
++			CAN_CTRLMODE_LISTENONLY;
+ 	}
+ 
+ 	priv->can.do_set_mode = rcar_canfd_do_set_mode;
+-- 
+2.43.0

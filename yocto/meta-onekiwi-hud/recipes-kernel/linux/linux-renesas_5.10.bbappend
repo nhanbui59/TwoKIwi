@@ -14,6 +14,7 @@ python () {
         d.appendVar("SRC_URI", " file://onekiwi-cmdline-quiet.cfg")
 }
 SRC_URI += "file://0002-can-rcar_canfd-fix-controller-mode-for-rzg2l.patch"
+SRC_URI += "file://0003-can-rcar_canfd-add-listen-only-and-berr-reporting.patch"
 
 SRC_URI += "file://onekiwi-rzv2l.dtb"
 

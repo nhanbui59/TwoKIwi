@@ -1,0 +1,29 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          onekiwi-net
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+### END INIT INFO
+
+# Static link-local IP for eth0 (service/flash port). IPv4LL range keeps
+# it off any customer LAN; host PC sets 169.254.10.1/16 to reach the HUD.
+
+case "$1" in
+    start)
+        ip link set eth0 up 2>/dev/null
+        ip addr add 169.254.10.2/16 dev eth0 2>/dev/null
+        ;;
+    stop)
+        ip addr del 169.254.10.2/16 dev eth0 2>/dev/null
+        ;;
+    restart)
+        $0 stop
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+exit 0

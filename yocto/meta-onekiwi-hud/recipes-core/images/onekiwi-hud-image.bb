@@ -13,6 +13,8 @@ IMAGE_INSTALL += " \
     can-utils iproute2 \
     python3 python3-pip python3-pillow \
     kernel-modules \
+    coreutils \
+    onekiwi-net \
     splash-logo \
     lvgl-v9 \
     lvgldemo \
