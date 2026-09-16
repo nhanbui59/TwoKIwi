@@ -218,3 +218,149 @@ Board = PMIC variant (`PMIC_SUPPORT=1`, DDR4 2GB). Files trong `build/tmp/deploy
 - Chạy khi fix: gạt SCIF mode + reset → `sg dialout -c "python3 ~/Workspace/HUD/30.Img/TwoKIwi/flash_spi.py"` → switch về QSPI → reboot
 - CH340 hay detach khỏi WSL — re-attach: chạy `C:\Users\Public\usbip-attach.ps1` elevated (đã đặt sẵn), hoặc `usbipd attach --wsl --busid 6-4`
 - User `nhanbv` đã ở group dialout
+
+## Bluetooth + WiFi (thêm 25/08/2026)
+
+### Trạng thái trước khi thêm — đo trên bo, không đoán
+
+```
+zcat /proc/config.gz | grep CONFIG_BT   ->  "# CONFIG_BT is not set"
+lsusb  ->  Bus 003 Device 002: ID 0a12:0001 Cambridge Silicon Radio (HCI mode)
+dmesg | grep -i bluetooth  ->  KHÔNG một dòng
+```
+
+Dongle được USB core liệt kê nhưng **không driver nào nhận** — thiếu hẳn ngăn xếp chứ
+không phải thiếu module. `modprobe bluetooth` → `Module not found`. Không có `opkg`/`apt`
+để cài BlueZ. Nên bắt buộc phải qua đường build lại image.
+
+### Đã thêm gì
+
+| Chỗ | Nội dung |
+|---|---|
+| `recipes-kernel/linux/linux-renesas/onekiwi-bt-wifi.cfg` | mảnh cấu hình nhân — BT + WiFi |
+| `linux-renesas_5.10.bbappend` | `SRC_URI += "file://onekiwi-bt-wifi.cfg"` |
+| `onekiwi-hud-image.bb` | `bluez5 bluez5-testtools wpa-supplicant iw` + 5 gói firmware WiFi |
+| `build/conf/local.conf` | `DISTRO_FEATURES_append = " bluetooth wifi"` |
+
+Dùng `=y` chứ không `=m` cho lớp lõi: bo không có initramfs nạp module sớm, và built-in
+thì không bao giờ lệch vermagic khi ai đó build lại nhân.
+
+**Ba mục crypto bắt buộc** (`CRYPTO_ECDH`, `CRYPTO_CMAC`, `CRYPTO_USER_API_HASH`) — thiếu
+là `CONFIG_BT` bị **tắt âm thầm** lúc `oldconfig`, không một thông báo nào.
+
+`CONFIG_BT_BREDR=y` là bắt buộc: mục tiêu là **SPP**, mà **BLE không có SPP**.
+
+Dongle CSR `0a12:0001` là đời cũ, `btusb` nhận thẳng, **không cần firmware ngoài**. WiFi
+thì **cần** — nên có `linux-firmware-*` trong IMAGE_INSTALL.
+
+### Nghiệm thu sau khi flash
+
+```bash
+zcat /proc/config.gz | grep -E "^CONFIG_BT=|^CONFIG_BT_RFCOMM=|^CONFIG_BT_HCIBTUSB="
+ls /sys/class/bluetooth/          # phải có hci0
+hciconfig hci0 up && hciconfig hci0 piscan
+```
+
+Không có `/sys/class/bluetooth` = mảnh cấu hình chưa ăn vào → kiểm bằng phép
+`md5sum /boot/Image` ở phần nghiệm thu trên.
+
+---
+
+## HUD svc — đồng bộ với bo (25/08/2026)
+
+Ba thứ đã lệch giữa recipe và bo thật, **cái thứ ba nguy hiểm**:
+
+| | Recipe (cũ) | Bo thật |
+|---|---|---|
+| `hud_app` | `a5057d8d` | `d7b7ff2f` |
+| `HUD_ARGS` | `--input null:` | có `--signals` + bàn phím |
+| `chan-demo.cfg` | **không có trong recipe** | có trên bo |
+
+`chan-demo.cfg` chưa bao giờ nằm trong image — nó được tạo tay trên bo. Flash image mới là
+mất, `--signals` trỏ vào khoảng không, `hud_app` lui về bảng demo `SIGDB_HUD_DEMO` và trên
+xe thật nó giải mã khung quảng bá của hãng thành **179,2 km/h "hợp lệ", số D, biển 123
+km/h**. Số sai trông như số thật. **Giờ đã được `do_install` cài vào `/etc/hud/`.**
+
+### `HUD_INPUT=auto` — tự dò bàn phím, đừng ghim `event1`
+
+`hud-init` giờ tự tìm bàn phím rồi chèn `--input evdev:...` vào lệnh chạy. Lý do không ghim
+cứng: số hiệu `eventN` phụ thuộc **thứ tự cắm**, rút ra cắm lại là nhảy số, và HUD mất nút
+bấm mà không một dòng lỗi nào.
+
+Lọc theo `kbd` **VÀ** `leds`: bo có sẵn `gpio-keys` mang handler `kbd` nhưng **không có
+`leds`** (đèn Caps Lock) — chỉ bàn phím thật mới có. Lấy cái `kbd` đầu tiên là vớ nhầm
+`gpio-keys` ngay (đã dính 24/08).
+
+Không thấy bàn phím → `null:` (an toàn), không để trống vì URI rỗng làm `hud_app` từ chối
+khởi động.
+
+Mã phím: `28`=Enter(màn kế) `14`=Backspace(màn trước) `33`=F(xoay lật) `103/108`=độ sáng
+`2,3,4`=màn 1/2/3. **Cố ý không gán phím nào vào QUIT** — `start-stop-daemon` không tự khởi
+động lại, nên một phím làm tắt HUD giữa đường là quá rủi ro.
+
+### `HUD_ARGS` hiện hành
+
+```
+--can socketcan:can0 --probe on --obd2 --signals /etc/hud/chan-demo.cfg --navlink null:
+```
+
+**Không** `--loud-probe`: đo 23/08 cho thấy bo cam khẩu được (`can <LISTEN-ONLY,FD>`),
+đường fail-closed chưa bao giờ chạy, cờ đó thừa.
+
+**Không** `--active-probe`: `--obd2` đã bao gồm bước bắt tay chuẩn ISO 15765-4. Tách ra làm
+cờ riêng là sai — chuẩn không có bước "nghe trước", tester khởi xướng, và bus chỉ-đáp là
+một lớp **xe thật** (gateway cách ly cổng OBD) chứ không phải chuyện của bàn giả lập.
+
+---
+
+## Máy build này KHÔNG phải máy 20 core
+
+`.wslconfig`: **8 lõi, 10 GB RAM, 16 GB swap**. AGENTS.md cũ ghi `BB_NUMBER_THREADS = "20"`
+và `PARALLEL_MAKE = "-j 20"` cho host 20 core — để nguyên trên máy này là OOM chắc chắn
+(20 × 20 = tới 400 tiến trình biên dịch lúc cao điểm).
+
+Đã hạ xuống `4` / `-j 4` trong `local.conf` (tối đa 16 tiến trình, vừa 10 GB).
+
+**Đổi máy build thì nhớ chỉnh lại hai số này theo `nproc` và `free -g`.**
+
+## Bluetooth: để điện thoại THẤY và GHÉP ĐÔI được — hai mảnh, thiếu một là câm (25/08/2026)
+
+Sau khi flash image có `CONFIG_BT`, quét điện thoại **vẫn không thấy** bo. Ba lớp chồng
+nhau, lớp nào cũng đủ giết, đo trên bo thật:
+
+1. **`DiscoverableTimeout` mặc định 180 giây** — bo tự ẩn sau 3 phút kể từ boot. Người
+   cầm điện thoại quét sau đó không bao giờ thấy.
+2. **`Class = 0x000000`** — nhiều điện thoại LỌC BỎ thiết bị class 0 khỏi danh sách quét.
+   Bo hiện diện trên sóng mà màn hình vẫn trống.
+3. **`hciconfig` bị `bluetoothd` ghi đè** — daemon là chủ; đặt tên/piscan bằng `hciconfig`
+   chỉ sống vài giây. Phải nói chuyện qua `main.conf` + `bluetoothctl`.
+
+### Mảnh 1 — `recipes-connectivity/bluez5/bluez5_%.bbappend` + `main.conf`
+
+`Name = HUD-RZV2L`, `Class = 0x000100`, `DiscoverableTimeout = 0`, `PairableTimeout = 0`,
+`[Policy] AutoEnable = true`. (bluez5 5.55 Dunfell KHÔNG tự cài main.conf nào — đây là
+thêm, không phải ghi đè.)
+
+### Mảnh 2 — recipe `onekiwi-bt`: cú hích lúc boot (S21, sau S20bluetooth)
+
+**Vì sao main.conf một mình KHÔNG đủ:** BlueZ 5.55 không có khoá nào trong main.conf đặt
+trạng thái Discoverable/Pairable BAN ĐẦU — chỉ có các *Timeout*. Trạng thái đó nằm trong
+`/var/lib/bluetooth/<địa-chỉ>/settings`, mà trên bo VỪA FLASH SẠCH thư mục này rỗng →
+adapter lên ở chế độ ẨN. Đo thật: sau reboot, Pairable quay về "no" dù trước đó đã bật tay.
+
+Script đợi `Powered: yes` (tối đa 20 giây, chạy trong NỀN — không kéo dài boot, S99hud
+vẫn lên đúng giờ) rồi `bluetoothctl discoverable on` + `pairable on`.
+
+### Nghiệm thu đã chạy trên bo (trước khi đưa vào image)
+
+Reboot sạch, không gõ lệnh nào:
+```
+Name: HUD-RZV2L   Class: 0x000100   Powered: yes
+Discoverable: yes   Pairable: yes   UP RUNNING PSCAN ISCAN
+```
+
+### Còn thiếu gì cho SPP
+
+Thấy + ghép đôi được ≠ nối SPP được: chưa có bản ghi SDP nào công bố hồ sơ Serial Port.
+Đó là việc của `nl_btspp.c` (backend `btspp:` trong hud_app) khi nó chạy — nhánh
+`feat/bluetooth` của repo rzv2l-hud.

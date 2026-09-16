@@ -1,0 +1,47 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          onekiwi-bt
+# Required-Start:    bluetooth
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: Cho HUD duoc tim thay, ghep doi, va cong bo dich vu SPP
+### END INIT INFO
+#
+# Chay SAU S20bluetooth. Toan bo phan doi nam trong nen — khong duoc chan
+# chuoi boot: S99hud phai len man hinh dung gio du Bluetooth co cham.
+
+# Kenh RFCOMM cua navlink — PHAI trung voi `--navlink btspp:N` trong
+# /etc/default/hud (NAVLINK_BT_DEFAULT_CH = 3 ben navlink.h; kenh 1,2 hay bi
+# dich vu khac chiem).
+NAVLINK_CH=3
+
+case "$1" in
+    start)
+        (
+            i=0
+            while [ $i -lt 20 ]; do
+                if bluetoothctl show 2>/dev/null | grep -q "Powered: yes"; then
+                    break
+                fi
+                sleep 1
+                i=$((i + 1))
+            done
+            bluetoothctl discoverable on >/dev/null 2>&1
+            bluetoothctl pairable on >/dev/null 2>&1
+
+            # CONG BO HO SO SPP TREN SDP — thieu buoc nay thi
+            # createRfcommSocketToServiceRecord() ben Android khong bao gio
+            # tim ra kenh, va app bao "Khong the ket noi" du da ghep doi.
+            # Doi hoi bluetoothd chay voi -C (compat) — xem bbappend bluez5.
+            # Guard de khoi dang ky trung khi restart.
+            if ! sdptool browse local 2>/dev/null | grep -q "Serial Port"; then
+                sdptool add --channel=$NAVLINK_CH SP >/dev/null 2>&1 \
+                    && echo "onekiwi-bt: da cong bo SPP kenh $NAVLINK_CH"
+            fi
+        ) &
+        ;;
+    stop) ;;
+    *) echo "Usage: $0 {start|stop}" ;;
+esac
+exit 0

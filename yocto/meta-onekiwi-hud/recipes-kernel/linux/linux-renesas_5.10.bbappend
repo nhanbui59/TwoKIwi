@@ -1,6 +1,7 @@
 FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"
 
 SRC_URI += "file://onekiwi-gpu-dsi.cfg"
+SRC_URI += "file://onekiwi-bt-wifi.cfg"
 SRC_URI += "file://0001-drm-panel-st7703-add-newhaven-nhd35-640480ef.patch"
 
 # Kernel boot log mode:

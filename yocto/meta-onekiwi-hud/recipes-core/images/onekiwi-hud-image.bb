@@ -20,6 +20,11 @@ IMAGE_INSTALL += " \
     lvgl-v9 \
     lvgldemo \
     usbutils \
+    bluez5 bluez5-testtools \
+    onekiwi-bt \
+    wpa-supplicant iw \
+    linux-firmware-rtl8188 linux-firmware-rtl8192cu \
+    linux-firmware-ralink linux-firmware-mt7601u linux-firmware-ath9k \
 "
 
 PACKAGE_EXCLUDE += " xserver-xorg \

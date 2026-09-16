@@ -223,8 +223,38 @@ case "$1" in
         # Con tro nhap nhay, phong khi image nao do van giu console tren fb.
         echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
 
+        # ---- NUT BAM: tu do ban phim USB neu HUD_INPUT=auto --------------
+        #
+        # So hieu /dev/input/eventN phu thuoc THU TU CAM, nen ghim cung vao
+        # HUD_ARGS la de lai mot qua min: rut ban phim ra cam lai la so nhay,
+        # va HUD mat nut bam ma khong mot dong loi nao.
+        #
+        # Loc theo `kbd` VA `leds`: bo co san `gpio-keys` mang handler `kbd`
+        # nhung KHONG co `leds` (den Caps Lock) — chi ban phim THAT moi co.
+        # Lay cai `kbd` dau tien la vo nham gpio-keys ngay (do that 24/08).
+        #
+        # Khong thay ban phim -> `null:` chu KHONG de trong: mot URI rong lam
+        # hud_app tu choi khoi dong.
+        HUD_IN_ARG="--input null:"
+        case "${HUD_INPUT:-null:}" in
+            auto)
+                EVK=$(awk '/^H: Handlers=/ && /kbd/ && /leds/ {
+                        for (i = 1; i <= NF; i++)
+                            if ($i ~ /^event[0-9]+$/) { print $i; exit }
+                      }' /proc/bus/input/devices 2>/dev/null)
+                if [ -n "$EVK" ]; then
+                    HUD_IN_ARG="--input evdev:/dev/input/$EVK:${HUD_INPUT_KEYS:-28,14,33,103,108,2,3,4}"
+                    echo "$NAME: ban phim -> /dev/input/$EVK"
+                else
+                    echo "$NAME: khong thay ban phim, tat nut bam"
+                fi
+                ;;
+            ""|null:) ;;
+            *)  HUD_IN_ARG="--input ${HUD_INPUT}" ;;
+        esac
+
         start-stop-daemon -S -b -m -p "$PIDFILE" -x /bin/sh -- -c \
-            "exec $DAEMON $HUD_ARGS $HUD_FLIP >> $LOGFILE 2>&1"
+            "exec $DAEMON $HUD_ARGS $HUD_IN_ARG $HUD_FLIP >> $LOGFILE 2>&1"
         ;;
 
     stop)

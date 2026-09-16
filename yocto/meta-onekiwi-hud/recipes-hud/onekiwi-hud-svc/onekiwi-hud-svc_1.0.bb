@@ -4,7 +4,7 @@ DESCRIPTION = "Cai hud_app (bien dich cheo tu repo rzv2l-hud), tep cau hinh \
 la HUD chay ngay, khong phai cau hinh tay lan nao."
 LICENSE = "CLOSED"
 
-SRC_URI = "file://hud_app file://hud-default file://hud-init"
+SRC_URI = "file://hud_app file://hud-default file://hud-init file://chan-demo.cfg"
 S = "${WORKDIR}"
 
 # Binary da bien dich cheo san cho aarch64 — dung de Yocto tu dong lam gi voi no.
@@ -37,6 +37,16 @@ do_install() {
 
     install -d ${D}${sysconfdir}/init.d
     install -m 0755 ${WORKDIR}/hud-init ${D}${sysconfdir}/init.d/hud
+
+    # BANG TIN HIEU CHAN — day KHONG phai mot tep giu cho.
+    # Thieu no thi `--signals /etc/hud/chan-demo.cfg` tro vao khoang khong,
+    # hud_app lui ve bang bien dich san (SIGDB_HUD_DEMO) — bang viet cho
+    # can_sim.py — va tren xe that no giai ma khung quang ba cua hang thanh
+    # toc do 179,2 km/h "hop le", so D, bien bao 123 km/h. So SAI TRONG NHU
+    # SO THAT. Tep nay tung chi ton tai tren bo do tao tay, nen moi lan flash
+    # lai image la lo hong do quay ve.
+    install -d ${D}${sysconfdir}/hud
+    install -m 0644 ${WORKDIR}/chan-demo.cfg ${D}${sysconfdir}/hud/chan-demo.cfg
 }
 
 # Ha demo lvgl-v9 xuong: no giu /dev/fb0 va chay TRUOC HUD (S98 < S99), nen
@@ -58,5 +68,5 @@ pkg_postinst_ontarget:${PN}() {
     exit 0
 }
 
-FILES_${PN} = "/home/root/hud_app ${sysconfdir}/default/hud ${sysconfdir}/init.d/hud"
-FILES:${PN} = "/home/root/hud_app ${sysconfdir}/default/hud ${sysconfdir}/init.d/hud"
+FILES_${PN} = "/home/root/hud_app ${sysconfdir}/default/hud ${sysconfdir}/init.d/hud ${sysconfdir}/hud/chan-demo.cfg"
+FILES:${PN} = "/home/root/hud_app ${sysconfdir}/default/hud ${sysconfdir}/init.d/hud ${sysconfdir}/hud/chan-demo.cfg"
